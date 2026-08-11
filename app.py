@@ -42,6 +42,7 @@ crear_tablas()
 GENEROS = [
     "Narrativo / Novela",
     "Narrativo / Cuento",
+    "Literatura Argentina / Latinoamericana",
     "Infantil / Juvenil",
     "Fantasía",
     "Ciencia ficción",
@@ -56,16 +57,19 @@ GENEROS = [
     "Otro"
 ]
 
-# --- 2. Catálogo Local de Libros Conocidos (Respuesta inmediata y precisa) ---
+# --- 2. Catálogo Local de Libros Conocidos ---
 LIBROS_LOCALES = {
     "el principito": "Narrativo / Cuento",
-    "cien años de soledad": "Narrativo / Novela",
+    "cien años de soledad": "Literatura Argentina / Latinoamericana",
     "don quijote": "Narrativo / Novela",
     "don quijote de la mancha": "Narrativo / Novela",
     "1984": "Ciencia ficción",
-    "rayuela": "Narrativo / Novela",
+    "rayuela": "Literatura Argentina / Latinoamericana",
+    "facciones": "Literatura Argentina / Latinoamericana",
+    "el aleph": "Literatura Argentina / Latinoamericana",
+    "ficciones": "Literatura Argentina / Latinoamericana",
     "mi planta de naranja lima": "Infantil / Juvenil",
-    "martín fierro": "Poesía / Lírico",
+    "martín fierro": "Literatura Argentina / Latinoamericana",
     "el hobbit": "Fantasía",
     "harry potter": "Infantil / Juvenil",
     "el señor de los anillos": "Fantasía",
@@ -76,6 +80,8 @@ LIBROS_LOCALES = {
 
 # --- 3. Mapeo para interpretar etiquetas de APIs externas ---
 MAPEO_GENEROS = {
+    "argentina": "Literatura Argentina / Latinoamericana",
+    "latin american": "Literatura Argentina / Latinoamericana",
     "fiction": "Narrativo / Novela",
     "novel": "Narrativo / Novela",
     "novela": "Narrativo / Novela",
@@ -307,6 +313,9 @@ elif opcion == "Registrar visita":
         libro = ""
         genero = ""
 
+        if motivo == "Otro":
+            motivo_otro = st.text_input("Especificar motivo de la visita:")
+
         if motivo == "Préstamo de libros":
             libro = st.text_input("Título del libro")
 
@@ -326,8 +335,10 @@ elif opcion == "Registrar visita":
             indice = GENEROS.index(genero_sugerido) if genero_sugerido in GENEROS else 0
             genero = st.selectbox("Género literario (podés corregirlo)", GENEROS, index=indice)
 
-        elif motivo == "Otro":
-            motivo_otro = st.text_input("Especificar motivo (opcional)")
+            if genero == "Otro":
+                genero_otro_texto = st.text_input("Especificar género literario:")
+                if genero_otro_texto.strip():
+                    genero = f"Otro: {genero_otro_texto.strip()}"
 
         if st.button("Guardar visita"):
             conn = get_connection()
@@ -348,23 +359,50 @@ elif opcion == "Registrar evento":
     with st.container(border=True):
         nombre = st.text_input("Nombre del evento")
         motivo_evento = st.selectbox("Motivo / tipo de evento", MOTIVOS_EVENTO)
+        
+        if motivo_evento == "Otro":
+            motivo_evento_otro = st.text_input("Especificar motivo/tipo de evento:")
+            if motivo_evento_otro.strip():
+                motivo_evento = motivo_evento_otro
+
         fecha_evento = st.date_input("Fecha del evento", value=date.today())
         asistentes = st.number_input("Cantidad de asistentes (aproximadamente)", min_value=0, step=1)
         dias_aviso = st.number_input("¿Con cuántos días de anticipación querés el recordatorio?", min_value=0, step=1, value=3)
 
         if st.button("Guardar evento"):
             if nombre.strip() == "":
-                st.error("Poné un nombre para el evento.")
+                st.error("⚠️ Por favor, poné un nombre para el evento.")
             else:
-                conn = get_connection()
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (nombre, str(fecha_evento), asistentes, motivo_evento, dias_aviso))
-                conn.commit()
-                conn.close()
-                st.success("Evento registrado correctamente ✅")
+                dias_restantes = (fecha_evento - date.today()).days
+                
+                if dias_restantes < 0:
+                    st.error("⚠️ La fecha del evento ya pasó. Elegí una fecha de hoy en adelante.")
+                elif dias_restantes == 0 and dias_aviso > 0:
+                    st.warning("⚠️ El evento es HOY. Se registrará, pero no requiere días de aviso previos.")
+                    dias_aviso = 0
+                    
+                    conn = get_connection()
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (nombre, str(fecha_evento), asistentes, motivo_evento, dias_aviso))
+                    conn.commit()
+                    conn.close()
+                    st.success("Evento registrado correctamente ✅")
+
+                elif dias_aviso >= dias_restantes and dias_restantes > 0:
+                    st.error(f"⚠️ Faltan solo {dias_restantes} día(s) para el evento. La cantidad de días de aviso ({dias_aviso}) debe ser menor a {dias_restantes}.")
+                else:
+                    conn = get_connection()
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (nombre, str(fecha_evento), asistentes, motivo_evento, dias_aviso))
+                    conn.commit()
+                    conn.close()
+                    st.success("Evento registrado correctamente ✅")
 
 # --- Reportes ---
 elif opcion == "Reportes":
