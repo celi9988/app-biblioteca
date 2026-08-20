@@ -222,9 +222,7 @@ def mostrar_recordatorios():
 
 def mostrar_pendientes_asistentes():
     conn = get_connection()
-    # Visitas con 0 o sin cantidad
     visitas_pendientes = pd.read_sql_query("SELECT * FROM visitas WHERE asistentes = 0 OR asistentes IS NULL", conn)
-    # Eventos con 0 asistentes
     eventos_pendientes = pd.read_sql_query("SELECT * FROM eventos WHERE asistentes = 0 OR asistentes IS NULL", conn)
     conn.close()
 
@@ -246,8 +244,7 @@ if opcion == "Inicio":
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        total_vis = int(visitas["asistentes"].sum()) if "asistentes" in visitas and not visitas.empty else len(visitas)
-        st.markdown(f'<div class="metric-card"><h3>{total_vis}</h3>Personas / Visitas</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>{len(visitas)}</h3>Visitas registradas</div>', unsafe_allow_html=True)
     with col2:
         st.markdown(f'<div class="metric-card"><h3>{len(eventos)}</h3>Eventos registrados</div>', unsafe_allow_html=True)
     with col3:
@@ -262,7 +259,7 @@ if opcion == "Inicio":
 elif opcion == "Registrar visita":
     st.header("📝 Registrar visita")
     
-    # SECCIÓN PENDIENTES
+    # SECCIÓN PENDIENTES VISITAS
     conn = get_connection()
     visitas_pend = pd.read_sql_query("SELECT * FROM visitas WHERE asistentes = 0 OR asistentes IS NULL", conn)
     conn.close()
@@ -389,7 +386,13 @@ elif opcion == "Registrar evento":
                 motivo_evento = motivo_evento_otro
 
         fecha_evento = st.date_input("Fecha del evento", value=date.today())
-        asistentes_inicial = st.number_input("Cantidad inicial de asistentes (0 = cargar después del evento)", min_value=0, step=1, value=0)
+        
+        c_opcion_ev = st.radio("¿Sabés la cantidad de asistentes ahora?", ["No, la cargo después del evento", "Sí, la cargo ahora"])
+        if c_opcion_ev == "Sí, la cargo ahora":
+            asistentes_inicial = st.number_input("Cantidad inicial de asistentes:", min_value=1, step=1, value=10)
+        else:
+            asistentes_inicial = 0  # Queda pendiente
+            
         dias_aviso = st.number_input("¿Con cuántos días de anticipación querés el recordatorio?", min_value=0, step=1, value=3)
 
         if st.button("Guardar evento"):
@@ -439,15 +442,13 @@ elif opcion == "Reportes":
 
     st.markdown("---")
     st.subheader("Cantidad total de visitantes")
-    
-    total_personas_periodo = int(visitas_filtradas["asistentes"].sum()) if "asistentes" in visitas_filtradas and not visitas_filtradas.empty else len(visitas_filtradas)
-    st.metric("Total de personas/visitantes en el período seleccionado", total_personas_periodo)
+    st.metric("Total de visitas registradas en el período", len(visitas_filtradas))
 
     if not visitas_filtradas.empty:
         col_g1, col_g2 = st.columns(2)
         with col_g1:
             st.markdown("### Rango de edad de los usuarios")
-            conteo_edad = visitas_filtradas.groupby("rango_edad")["asistentes"].sum().reset_index()
+            conteo_edad = visitas_filtradas["rango_edad"].value_counts().reset_index()
             conteo_edad.columns = ["Rango de edad", "Cantidad"]
             fig_edad = px.pie(conteo_edad, names="Rango de edad", values="Cantidad", hole=0.35)
             fig_edad.update_traces(textinfo="percent+label")
@@ -455,7 +456,7 @@ elif opcion == "Reportes":
 
         with col_g2:
             st.markdown("### Motivos de visita")
-            conteo_motivo = visitas_filtradas.groupby("motivo")["asistentes"].sum().reset_index()
+            conteo_motivo = visitas_filtradas["motivo"].value_counts().reset_index()
             conteo_motivo.columns = ["Motivo", "Cantidad"]
             fig_motivo = px.pie(conteo_motivo, names="Motivo", values="Cantidad")
             fig_motivo.update_traces(textinfo="percent+label")
