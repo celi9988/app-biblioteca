@@ -12,6 +12,7 @@ def get_connection():
 def crear_tablas():
     conn = get_connection()
     cur = conn.cursor()
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS visitas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,16 +20,24 @@ def crear_tablas():
             rango_edad TEXT,
             motivo TEXT,
             motivo_otro TEXT,
+            colegio TEXT,
             libro TEXT,
             genero TEXT
         )
     """)
+    
+    # Intento agregar columna 'colegio' si el sistema viene de una versión anterior
+    try:
+        cur.execute("ALTER TABLE visitas ADD COLUMN colegio TEXT")
+    except sqlite3.OperationalError:
+        pass  # La columna ya existía
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS eventos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT,
             fecha TEXT,
-            asistentes INTEGER,
+            asistentes INTEGER DEFAULT 0,
             motivo TEXT,
             dias_aviso INTEGER
         )
@@ -241,7 +250,7 @@ div.stButton > button:hover {
 
 RANGOS_EDAD = ["Niño (0-12)", "Adolescente (13-17)", "Joven (18-25)", "Adulto (26-59)", "Adulto mayor (60+)"]
 MOTIVOS = ["Lectura en sala", "Préstamo de libros", "Uso de computadoras/internet",
-           "Estudio/tarea", "Actividad cultural", "Consulta/referencia", "Otro"]
+           "Estudio/tarea", "Visita escolar / grupo", "Actividad cultural", "Consulta/referencia", "Otro"]
 MOTIVOS_EVENTO = ["Taller", "Charla/Conferencia", "Club de lectura", "Exposición",
                    "Actividad infantil", "Presentación de libro", "Otro"]
 
@@ -310,10 +319,14 @@ elif opcion == "Registrar visita":
         motivo = st.selectbox("Motivo de la visita", MOTIVOS)
 
         motivo_otro = ""
+        colegio = ""
         libro = ""
         genero = ""
 
-        if motivo == "Otro":
+        if motivo in ["Visita escolar / grupo", "Actividad cultural"]:
+            colegio = st.text_input("Nombre del colegio / institución (opcional):")
+
+        elif motivo == "Otro":
             motivo_otro = st.text_input("Especificar motivo de la visita:")
 
         if motivo == "Préstamo de libros":
@@ -344,9 +357,9 @@ elif opcion == "Registrar visita":
             conn = get_connection()
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO visitas (fecha, rango_edad, motivo, motivo_otro, libro, genero)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (str(date.today()), rango_edad, motivo, motivo_otro, libro, genero))
+                INSERT INTO visitas (fecha, rango_edad, motivo, motivo_otro, colegio, libro, genero)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (str(date.today()), rango_edad, motivo, motivo_otro, colegio, libro, genero))
             conn.commit()
             conn.close()
             if "genero_auto" in st.session_state:
@@ -355,54 +368,81 @@ elif opcion == "Registrar visita":
 
 # --- Registrar evento ---
 elif opcion == "Registrar evento":
-    st.header("🎉 Registrar evento especial")
-    with st.container(border=True):
-        nombre = st.text_input("Nombre del evento")
-        motivo_evento = st.selectbox("Motivo / tipo de evento", MOTIVOS_EVENTO)
-        
-        if motivo_evento == "Otro":
-            motivo_evento_otro = st.text_input("Especificar motivo/tipo de evento:")
-            if motivo_evento_otro.strip():
-                motivo_evento = motivo_evento_otro
+    st.header("🎉 Registrar / Cargar Evento")
+    
+    tab1, tab2 = st.tabs(["📌 Registrar Nuevo Evento", "✏️ Cargar/Actualizar Asistentes"])
 
-        fecha_evento = st.date_input("Fecha del evento", value=date.today())
-        asistentes = st.number_input("Cantidad de asistentes (aproximadamente)", min_value=0, step=1)
-        dias_aviso = st.number_input("¿Con cuántos días de anticipación querés el recordatorio?", min_value=0, step=1, value=3)
+    with tab1:
+        with st.container(border=True):
+            nombre = st.text_input("Nombre del evento")
+            motivo_evento = st.selectbox("Motivo / tipo de evento", MOTIVOS_EVENTO)
+            
+            if motivo_evento == "Otro":
+                motivo_evento_otro = st.text_input("Especificar motivo/tipo de evento:")
+                if motivo_evento_otro.strip():
+                    motivo_evento = motivo_evento_otro
 
-        if st.button("Guardar evento"):
-            if nombre.strip() == "":
-                st.error("⚠️ Por favor, poné un nombre para el evento.")
-            else:
-                dias_restantes = (fecha_evento - date.today()).days
-                
-                if dias_restantes < 0:
-                    st.error("⚠️ La fecha del evento ya pasó. Elegí una fecha de hoy en adelante.")
-                elif dias_restantes == 0 and dias_aviso > 0:
-                    st.warning("⚠️ El evento es HOY. Se registrará, pero no requiere días de aviso previos.")
-                    dias_aviso = 0
-                    
-                    conn = get_connection()
-                    cur = conn.cursor()
-                    cur.execute("""
-                        INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (nombre, str(fecha_evento), asistentes, motivo_evento, dias_aviso))
-                    conn.commit()
-                    conn.close()
-                    st.success("Evento registrado correctamente ✅")
+            fecha_evento = st.date_input("Fecha del evento", value=date.today())
+            asistentes_inicial = st.number_input("Cantidad inicial de asistentes (opcional, podés cargarla después)", min_value=0, step=1, value=0)
+            dias_aviso = st.number_input("¿Con cuántos días de anticipación querés el recordatorio?", min_value=0, step=1, value=3)
 
-                elif dias_aviso >= dias_restantes and dias_restantes > 0:
-                    st.error(f"⚠️ Faltan solo {dias_restantes} día(s) para el evento. La cantidad de días de aviso ({dias_aviso}) debe ser menor a {dias_restantes}.")
+            if st.button("Guardar evento nuevo"):
+                if nombre.strip() == "":
+                    st.error("⚠️ Por favor, poné un nombre para el evento.")
                 else:
-                    conn = get_connection()
-                    cur = conn.cursor()
-                    cur.execute("""
-                        INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (nombre, str(fecha_evento), asistentes, motivo_evento, dias_aviso))
-                    conn.commit()
-                    conn.close()
-                    st.success("Evento registrado correctamente ✅")
+                    dias_restantes = (fecha_evento - date.today()).days
+                    
+                    if dias_restantes < 0:
+                        st.error("⚠️ La fecha del evento ya pasó. Elegí una fecha de hoy en adelante.")
+                    elif dias_restantes == 0 and dias_aviso > 0:
+                        st.warning("⚠️ El evento es HOY. Se registrará, pero no requiere días de aviso previos.")
+                        dias_aviso = 0
+                        
+                        conn = get_connection()
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (nombre, str(fecha_evento), asistentes_inicial, motivo_evento, dias_aviso))
+                        conn.commit()
+                        conn.close()
+                        st.success("Evento registrado correctamente ✅")
+
+                    elif dias_aviso >= dias_restantes and dias_restantes > 0:
+                        st.error(f"⚠️ Faltan solo {dias_restantes} día(s) para el evento. La cantidad de días de aviso ({dias_aviso}) debe ser menor a {dias_restantes}.")
+                    else:
+                        conn = get_connection()
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO eventos (nombre, fecha, asistentes, motivo, dias_aviso)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (nombre, str(fecha_evento), asistentes_inicial, motivo_evento, dias_aviso))
+                        conn.commit()
+                        conn.close()
+                        st.success("Evento registrado correctamente ✅")
+
+    with tab2:
+        st.subheader("Cargar cantidad de asistentes después del evento")
+        conn = get_connection()
+        eventos_df = pd.read_sql_query("SELECT * FROM eventos", conn)
+        conn.close()
+
+        if eventos_df.empty:
+            st.info("Todavía no hay eventos registrados para actualizar.")
+        else:
+            opciones_eventos = {f"{row['nombre']} - Fecha: {row['fecha']} (Asistentes actuales: {row['asistentes']})": row['id'] for _, row in eventos_df.iterrows()}
+            evento_elegido = st.selectbox("Seleccioná el evento a actualizar:", list(opciones_eventos.keys()))
+            
+            evento_id = opciones_eventos[evento_elegido]
+            nuevos_asistentes = st.number_input("Cantidad final de asistentes reales:", min_value=0, step=1, value=0)
+
+            if st.button("Actualizar Asistentes"):
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute("UPDATE eventos SET asistentes = ? WHERE id = ?", (nuevos_asistentes, evento_id))
+                conn.commit()
+                conn.close()
+                st.success("¡Cantidad de asistentes actualizada con éxito! 🎉")
 
 # --- Reportes ---
 elif opcion == "Reportes":
